@@ -41,7 +41,7 @@ Default Behaviour. Fetch proxies from the list of public proxy sites and store t
 `./fetch.js -o proxies.txt`  
 Output the proxies to a custom file, in this case proxies.txt in the CWD.  
 
-`./fetch.js -u "http://proxylist.hidemyass.com/search-1292985/{page}"`
+`./fetch.js -u "http://proxylist.hidemyass.com/search-1292985/{page}"`  
 Specify a custom page to look for proxies. NOTE: `{page}` is a variable that will be incremented by 1 each request until the script can no longer find proxies.
 
 `./fetch.js -u "http://incloak.com/proxy-list/?start={page:0-64}"`  
