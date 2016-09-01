@@ -6,7 +6,9 @@
  *  - http://incloak.com/proxy-list/#list (250-400 proxies)
  *  - http://proxy-list.org/english/index.php?p=1 (140 proxies)
  *  - https://nordvpn.com/wp-admin/admin-ajax.php... (500-1000 proxies, low success rate)
- *    http://www.cool-proxy.net/proxies/... (200 proxies)
+ *  - http://www.cool-proxy.net/proxies/... (200 proxies)
+ *  - http://www.samair.ru/proxy/proxy-30.htm (1000 proxies)
+ *  - http://rosinstrument.com/proxy/l100.xml (100 proxies)
  *
  *  Hidemyass is pretty tricky as they obfuscate the ip's using a few dirty techniques.. pretty clever but
  *  we can bypass that with a little work.
@@ -58,7 +60,9 @@ function Fetch(options) {
         'http://incloak.com/proxy-list/?start={page:0-64}',
         'https://nordvpn.com/wp-admin/admin-ajax.php?searchParameters%5B0%5D%5Bname%5D=proxy-country&searchParameters%5B0%5D%5Bvalue%5D=&searchParameters%5B1%5D%5Bname%5D=proxy-ports&searchParameters%5B1%5D%5Bvalue%5D=&offset={page:0-1000}&limit=1000&action=getProxies',
         'http://proxy-list.org/english/index.php?p={page}',
-        'http://www.cool-proxy.net/proxies/http_proxy_list/page:{page}/sort:score/direction:desc'
+        'http://www.cool-proxy.net/proxies/http_proxy_list/page:{page}/sort:score/direction:desc',
+        'http://www.samair.ru/proxy/proxy-{page:01}.htm',
+        'http://rosinstrument.com/proxy/l{page}00.xml'
     ];
     // ensure this directory exists
     this.outputFile = options.outputFile || "proxies/fetched/fetched_proxies_{date}.txt";
@@ -124,8 +128,28 @@ Fetch.prototype.main = function() {
         else {
             if (_this.verbose)
               _this.log("c:red", "Error connecting to ", "c:red bold", data.url, " ",  "c:red bold", data.error);
-            _this.log();
-            _this.saveProxies();
+
+            if (_this.urls[_this._urlIndex + 1]) {
+                _this._urlIndex++;
+                _this._urlPage = -1;
+                _this.fetchPage();
+            }
+            else {
+                _this.log();
+                _this.saveProxies();
+
+                if (_this.retry) {
+                    var mins = parseInt(_this.retry) * 60000;
+                    this.log("");
+                    this.log("c:yellow", "Retrying in ", "c:yellow bold", _this.runTime(new Date().getTime() - mins));
+                    setTimeout(function () {
+                        _this.startPage = 1;
+                        _this._proxies = [];
+                        _this.fetchPage();
+                    }, mins);
+                }
+
+            }
         }
 
     });
@@ -146,6 +170,7 @@ Fetch.prototype.fetchPage = function() {
     // defaults
     var startPage = 1;
     var inc = 1;
+    var leftPad = false;
 
     // now replace {page} or {page
     var parts = new RegExp(/{page(.*)}/).exec(url);
@@ -157,23 +182,32 @@ Fetch.prototype.fetchPage = function() {
 
             if (params.indexOf('-') > -1) {
                 [startPage, inc] = params.split('-');
+                if (startPage[0] == 0 && startPage.length > 1)
+                    leftPad = true;
             }
             else {
+                if (params[0] == '0' && params.length > 1)
+                    leftPad = true;
                 startPage = parseInt(params);
             }
         }
+        if (leftPad && startPage < 10)
+            startPage = '0' + startPage;
 
         // if it's the first time running this url then urlPage will be -1
         if (this._urlPage < 0) {
             this._urlPage = startPage;
         }
         else {
-            startPage = parseInt(this._urlPage);
+            startPage = this._urlPage;
         }
         url = url.replace(/{page.*}/, String(startPage));
     }
 
     startPage = parseInt(startPage) + parseInt(inc);
+    if (leftPad && startPage < 10)
+        startPage = '0' + startPage;
+
     this._urlPage = startPage;
 
     if (this.verbose) this.log("Loading ", "c:bold", url);
@@ -374,6 +408,38 @@ Fetch.prototype.extractProxies = function(data) {
             }
         });
     }
+    else if (data.url.indexOf('samair') > -1) {
+        $('#proxylist tr').each(function (index) {
+            var a = $(this);
+            var ports={};
+            ports['r2463']="8080";ports['rcb30']="3128";ports['rc80e']="80";ports['r991e']="8000";ports['r4bd9']="3129";ports['rf48f']="8008";ports['rea0f']="9999";ports['r375f']="8081";ports['re097']="8082";ports['r9d18']="666";ports['r0a9e']="1337";ports['r6dac']="6006";ports['ra58b']="8088";ports['r55ff']="81";ports['rada6']="82";ports['r263a']="9000";ports['r0662']="8888";ports['r0e06']="8118";ports['r41cd']="7777";ports['r44a3']="1920";ports['ra5a4']="9797";ports['r5ff5']="20000";ports['r9ef3']="3123";ports['rc9ec']="8102";ports['r9f3e']="8123";ports['r7420']="2226";ports['r3f5e']="10081";ports['rcaa2']="1080";ports['r815d']="808";ports['r162a']="25";ports['r0860']="83";ports['r4151']="8998";ports['r5d46']="8090";ports['r4623']="843";ports['r30be']="2915";ports['r519a']="10000";ports['r0374']="31281";ports['rdc85']="8989";ports['ref8d']="8139";ports['ra273']="8135";ports['r8e42']="5555";ports['r364f']="18000";ports['re042']="2016";ports['rf745']="9090";ports['r7b93']="22684";ports['r9011']="8143";ports['r22d1']="8136";ports['r0829']="8089";ports['rc552']="27149";ports['r60f2']="3205";ports['r645a']="8083";ports['rcac2']="87";ports['r88fc']="7004";ports['rcaa9']="443";
+
+            var ip = a.find('td:nth-child(1) span').text().trim();
+            var html = a.find('td:nth-child(1)').html();
+            var cls = new RegExp(/class=\"(.+)\"/).exec(html);
+            if (cls && cls[1] && ports[cls[1]]) {
+                var port = ports[cls[1]];
+                ips.push(ip + ':' + port);
+            }
+        });
+    }
+    else if (data.url.indexOf('rosin') > -1) {
+        //new RegExp(/\<title\>(.+)\<\/title\>/g).exec(data.html)
+        $('item').each(function (index) {
+            var a = $(this);
+
+            var ip = a.find('title').text().trim();
+            var port;
+            [ip, port] = ip.split(':');
+            // there's a few false positives in this xml so ignore warnings
+            if (_this.validateIpAddress(ip)) {
+                ips.push(ip + ':' + port);
+            }
+
+        });
+    }
+
+
 
     return ips;
 };
