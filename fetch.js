@@ -62,7 +62,9 @@ function Fetch(options) {
         'http://proxy-list.org/english/index.php?p={page}',
         'http://www.cool-proxy.net/proxies/http_proxy_list/page:{page}/sort:score/direction:desc',
         'http://www.samair.ru/proxy/proxy-{page:01}.htm',
-        'http://rosinstrument.com/proxy/l{page}00.xml'
+        'http://rosinstrument.com/proxy/l{page}00.xml',
+        'http://www.us-proxy.org/',
+        'http://www.us-proxy.org/uk-proxy.html'
     ];
     // ensure this directory exists
     this.outputFile = options.outputFile || "proxies/fetched/fetched_proxies_{date}.txt";
@@ -91,6 +93,22 @@ Fetch.prototype.main = function() {
     }
 
     this.on('fetchPage', function(data) {
+        var save = function(){
+            _this.log();
+            _this.saveProxies();
+
+            if (_this.retry) {
+                var mins = parseInt(_this.retry) * 60000;
+                _this.log("");
+                _this.log("c:yellow", "Retrying in ", "c:yellow bold", _this.runTime(new Date().getTime() - mins));
+                setTimeout(function () {
+                    _this.startPage = 1;
+                    _this._proxies = [];
+                    _this.fetchPage();
+                }, mins);
+            }
+        };
+
         if (!data.error && data.response.statusCode === 200) {
 
             var proxies = _this.extractProxies(data);
@@ -100,7 +118,18 @@ Fetch.prototype.main = function() {
                     "c:green bold", (data.url), "c:green", " in ",
                     "c:green bold",  _this.runTime(data.duration));
                 _this._proxies.push.apply(_this._proxies, proxies);
-                _this.fetchPage();
+
+                if (data.singlePage && _this.urls[_this._urlIndex + 1] ) {
+                    _this._urlIndex++;
+                    _this._urlPage = -1;
+                    _this.fetchPage();
+                }
+                else if (data.singlePage && ! _this.urls[_this._urlIndex + 1]) {
+                    save();
+                }
+                else {
+                    _this.fetchPage();
+                }
             }
             // try the next url
             else if (_this.urls[_this._urlIndex + 1]) {
@@ -109,20 +138,7 @@ Fetch.prototype.main = function() {
                 _this.fetchPage();
             }
             else {
-                _this.log();
-                _this.saveProxies();
-
-                if (_this.retry) {
-                    var mins = parseInt(_this.retry) * 60000;
-                    this.log("");
-                    this.log("c:yellow", "Retrying in ", "c:yellow bold", _this.runTime(new Date().getTime() - mins));
-                    setTimeout(function () {
-                        _this.startPage = 1;
-                        _this._proxies = [];
-                        _this.fetchPage();
-                    }, mins);
-                }
-
+                save();
             }
         }
         else {
@@ -135,20 +151,7 @@ Fetch.prototype.main = function() {
                 _this.fetchPage();
             }
             else {
-                _this.log();
-                _this.saveProxies();
-
-                if (_this.retry) {
-                    var mins = parseInt(_this.retry) * 60000;
-                    this.log("");
-                    this.log("c:yellow", "Retrying in ", "c:yellow bold", _this.runTime(new Date().getTime() - mins));
-                    setTimeout(function () {
-                        _this.startPage = 1;
-                        _this._proxies = [];
-                        _this.fetchPage();
-                    }, mins);
-                }
-
+                save();
             }
         }
 
@@ -219,7 +222,12 @@ Fetch.prototype.fetchPage = function() {
         },
         url: url
     }, function (error, response, body) {
-        _this.emit('fetchPage', {error: error, url: url, response: response, body: body, duration: startTime});
+        var ret = {error: error, url: url, response: response, body: body, duration: startTime};
+        // handle single page
+        if (!parts) {
+            ret.singlePage = true;
+        }
+        _this.emit('fetchPage', ret);
     });
 };
 
@@ -436,6 +444,20 @@ Fetch.prototype.extractProxies = function(data) {
                 ips.push(ip + ':' + port);
             }
 
+        });
+    }
+    else if (data.url.indexOf('us-proxy') > -1) {
+        $('#proxylisttable>tbody>tr').each(function (index) {
+            var a = $(this);
+
+            // grab the style information for each row
+            var ip = a.find('td:nth-child(1)').text().trim();
+            var port = a.find('td:nth-child(2)').text().trim();
+            var parts = new RegExp(/Proxy\(\'(.+)\'\)/).exec(ip);
+            if (!_this.validateIpAddress(ip)) {
+                _this.log('c:bgRed bold', 'invalid ip address: ' + ip);
+            }
+            ips.push(ip + ':' + port);
         });
     }
 
