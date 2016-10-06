@@ -41,6 +41,7 @@ const EventEmitter = require('events').EventEmitter;
 const cheerio = require('cheerio');
 const request = require('request');
 const chalk = require('chalk');
+const url = require('url');
 
 /**
  * This follows the observer design pattern. We take arguments first from options, then argv then resort to defaults
@@ -64,10 +65,22 @@ function Fetch(options) {
         'http://www.samair.ru/proxy/proxy-{page:01}.htm',
         'http://rosinstrument.com/proxy/l{page}00.xml',
         'http://www.us-proxy.org/',
-        'http://www.us-proxy.org/uk-proxy.html'
+        'http://www.us-proxy.org/uk-proxy.html',
+        'http://list.proxylistplus.com/Fresh-HTTP-Proxy-List-{page}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=united%20states&PageIdx:{page:1/14}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=china&PageIdx:{page:1/24}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=brazil&PageIdx:{page:1/10}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=russia&PageIdx:{page:1/9}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=indonesia&PageIdx:{page:1/9}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=taiwan&PageIdx:{page:1/7}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=india&PageIdx:{page:1/4}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=thailand&PageIdx:{page:1/4}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=france&PageIdx:{page:1/3}',
+        'POST:http://gatherproxy.com/proxylist/country/?Country=united+kingdom&PageIdx:{page:1/2}',
+        'http://www.httptunnel.ge/ProxyListForFree.aspx'
     ];
     // ensure this directory exists
-    this.outputFile = options.outputFile || "proxies/fetched/fetched_proxies_{date}.txt";
+    this.outputFile = options.outputFile || __dirname + "/proxies/fetched/fetched_proxies_{date}.txt";
     // show extra debug info
     this.verbose = options.verbose || false;
     this.retry = options.retry || false;
@@ -102,7 +115,8 @@ Fetch.prototype.main = function() {
                 _this.log("");
                 _this.log("c:yellow", "Retrying in ", "c:yellow bold", _this.runTime(new Date().getTime() - mins));
                 setTimeout(function () {
-                    _this.startPage = 1;
+                    _this._urlIndex = 0;
+                    _this.urlPage = -1;
                     _this._proxies = [];
                     _this.fetchPage();
                 }, mins);
@@ -169,24 +183,33 @@ Fetch.prototype.fetchPage = function() {
     var _this = this;
 
     var startTime = new Date().getTime();
-    var url = this.urls[this._urlIndex];
+    var pageUrl = this.urls[this._urlIndex];
     // defaults
     var startPage = 1;
     var inc = 1;
     var leftPad = false;
+    var reachedEnd = false;
 
     // now replace {page} or {page
-    var parts = new RegExp(/{page(.*)}/).exec(url);
+    var parts = new RegExp(/{page(.*)}/).exec(pageUrl);
     if (parts) {
         var params = parts[1];
 
         if (params.indexOf(':') > -1) {
             params = params.split(':')[1];
 
+            // 1-64 allows us to define the start number and amount to increment
             if (params.indexOf('-') > -1) {
                 [startPage, inc] = params.split('-');
                 if (startPage[0] == 0 && startPage.length > 1)
                     leftPad = true;
+            }
+            else if (params.indexOf('/') > -1) {
+                var maxPage;
+                [startPage, maxPage] = params.split('/');
+                if (this._urlPage > maxPage) {
+                    reachedEnd = true;
+                }
             }
             else {
                 if (params[0] == '0' && params.length > 1)
@@ -204,51 +227,65 @@ Fetch.prototype.fetchPage = function() {
         else {
             startPage = this._urlPage;
         }
-        url = url.replace(/{page.*}/, String(startPage));
+        pageUrl = pageUrl.replace(/{page.*}/, String(startPage));
     }
+    if (reachedEnd) {
+        var ret = {error: null, url: pageUrl, response: {}, body: '', duration: startTime};
+        this.emit('fetchPage',ret);
+    }
+    else {
 
-    startPage = parseInt(startPage) + parseInt(inc);
-    if (leftPad && startPage < 10)
-        startPage = '0' + startPage;
+        startPage = parseInt(startPage) + parseInt(inc);
+        if (leftPad && startPage < 10)
+            startPage = '0' + startPage;
 
-    this._urlPage = startPage;
+        this._urlPage = startPage;
 
-    if (this.verbose) this.log("Loading ", "c:bold", url);
-    request({
-        method: 'GET',
-        timeout : _this.requestTimeout,
-        headers: {
-            "User-Agent":_this.userAgent()
-        },
-        url: url
-    }, function (error, response, body) {
-        var ret = {error: error, url: url, response: response, body: body, duration: startTime};
-        // handle single page
-        if (!parts) {
-            ret.singlePage = true;
+        if (this.verbose) this.log("Loading ", "c:bold", pageUrl);
+        var payload = {
+            method: 'GET',
+            timeout : _this._requestTimeout,
+            headers: {
+                "User-Agent":_this.userAgent()
+            },
+            url: pageUrl
+        };
+
+        if (pageUrl.substr(0,5) === 'POST:') {  // post data
+            pageUrl = pageUrl.substr(5, pageUrl.length);
+            payload.url = pageUrl;
+            payload.method = 'POST';
+            payload.form = url.parse(pageUrl, true).query;
         }
-        _this.emit('fetchPage', ret);
-    });
+
+        request(payload, function (error, response, body) {
+            var ret = {error: error, url: pageUrl, response: response, body: body, duration: startTime};
+            // handle single page
+            if (!parts) {
+                ret.singlePage = true;
+            }
+            _this.emit('fetchPage', ret);
+        });
+    }
 };
 
 
 Fetch.prototype.saveProxies = function() {
     var _this = this;
 
-    this.outputFile = String(this.outputFile).replace("{date}", this.dateStamp());
+    var outputFile = String(this.outputFile).replace("{date}", this.dateStamp());
 
-    if (fs.existsSync(this.outputFile)) {
-        var origProxies = fs.readFileSync(this.outputFile).toString('utf8').split('\n');
+    if (fs.existsSync(outputFile)) {
+        var origProxies = fs.readFileSync(outputFile).toString('utf8').split('\n');
         var oldTotal = this._proxies.length;
         this.log("Total ", "c:bold", this._proxies.length, " proxies. Appending to ",
-            "c:bold", origProxies.length, " found in ", "c:bold", this.outputFile);
+            "c:bold", origProxies.length, " found in ", "c:bold", outputFile);
 
         this._proxies.push.apply(this._proxies, origProxies);
 
         oldTotal = this._proxies.length;
-        this._proxies = this._proxies.filter(function (el, index, self) {
-            return index == self.indexOf(el);
-        });
+        // es6 way of removing dupes, taken from http://stackoverflow.com/questions/9229645/remove-duplicates-from-javascript-array
+        this._proxies =  Array.from(new Set(this._proxies));
 
         if (oldTotal - this._proxies.length > 0) {
             _this.log("Removing ", "c:bold", (oldTotal - this._proxies.length),
@@ -256,11 +293,11 @@ Fetch.prototype.saveProxies = function() {
         }
     }
 
-    fs.writeFileSync(this.outputFile, this._proxies.join("\n"), "utf8");
+    fs.writeFileSync(outputFile, this._proxies.join("\n"), "utf8");
     this.log("c:cyan", "Saved ", "c:cyan bold", this._proxies.length, "c:cyan", " unique proxies to ",
-        "c:cyan bold", this.outputFile);
+        "c:cyan bold", outputFile);
     // emit a complete call so this can be hooked into others
-    this.emit('complete', this.outputFile, this._proxies.length);
+    this.emit('complete', outputFile, this._proxies.length);
 };
 
 /**
@@ -368,7 +405,7 @@ Fetch.prototype.extractProxies = function(data) {
             // grab the style information for each row
             var ip = a.find('.proxy').text().trim();
             var parts = new RegExp(/Proxy\(\'(.+)\'\)/).exec(ip);
-            if (parts[1]) {
+            if (parts) {
                 ip = Buffer.from(parts[1], 'base64').toString();
             }
             var port;
@@ -459,6 +496,57 @@ Fetch.prototype.extractProxies = function(data) {
             }
             ips.push(ip + ':' + port);
         });
+    }
+    else if (data.url.indexOf('proxylistplus') > -1) {
+        $('table.bg tr.cells').each(function (index) {
+            var a = $(this);
+
+            // grab the style information for each row
+            var ip = a.find('td:nth-child(2)').text().trim();
+            var port = a.find('td:nth-child(3)').text().trim();
+            if (!_this.validateIpAddress(ip)) {
+                _this.log('c:bgRed bold', 'invalid ip address: ' + ip);
+            }
+            ips.push(ip + ':' + port);
+        });
+    }
+    else if (data.url.indexOf('gather') > -1) {
+        $('#tblproxy>tr').each(function (index) {
+            var a = $(this);
+
+            // grab the style information for each row
+            var ip = a.find('td:nth-child(2)').text().trim();
+            var parts = new RegExp(/\(\'(.+)\'\)/).exec(ip);
+            if (parts) {
+                ip = parts[1];
+            }
+            var port = a.find('td:nth-child(3)').text().trim();
+            parts = new RegExp(/\(\'(.+)\'\)/).exec(port);
+            if (parts) {
+                port = parseInt(parts[1], 16);
+            }
+            if (!_this.validateIpAddress(ip) && _this.verbose) {
+                _this.log('c:bgRed bold', 'invalid ip address: ' + ip);
+            }
+            ips.push(ip + ':' + port);
+        });
+    }
+    else if (data.url.indexOf('httptunnel.ge') > -1) {
+        $('#ctl00_ContentPlaceHolder1_GridViewNEW>tr').each(function (index) {
+            var a = $(this);
+
+            // grab the style information for each row
+            var ip = a.find('td:nth-child(1) a').text().trim();
+            var port;
+            [ip, port] = ip.split(':');
+            if (_this.validateIpAddress(ip)) {
+                ips.push(ip + ':' + port);
+            }
+        });
+    }
+
+    else {
+        _this.log("c:red", "No processor for " + data.url);
     }
 
 
@@ -626,5 +714,5 @@ if (process.argv[1] == __filename) {
     fetch.main();
 }
 else {
-    module.exports = new Fetch();
+    module.exports = Fetch;
 }
