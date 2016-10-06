@@ -29,3 +29,6 @@ Specify a custom page to look for proxies. NOTE: `{page}` is a variable that wil
 
 `./fetch.js -u "http://incloak.com/proxy-list/?start={page:0-64}"`  
 Advanced usage: `{page:0-64}` tells the script to start from page 0 and increment by 64 at a time.
+
+`./fetch.js -u "POST:http://gatherproxy.com/proxylist/country/?Country=united%20states&PageIdx:{page:1/14}"`  
+Support for POST: The get params will get converted into POST DATA 
